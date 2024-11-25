@@ -32,6 +32,8 @@
   enterShell = ''
     hello
     git --version
+    git config user.email "$GIT_EMAIL"`
+    git config user.name "$GIT_USERNAME"
   '';
 
   # https://devenv.sh/tasks/
