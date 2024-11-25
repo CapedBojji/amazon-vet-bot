@@ -1,0 +1,17 @@
+__pycache__
+.env
+credentials.json
+token.json
+
+# Devenv
+.devenv*
+devenv.local.nix
+
+# direnv
+.direnv
+
+# pre-commit
+.pre-commit-config.yaml
+
+credentials.json
+token.json
