@@ -1,17 +1,19 @@
 { pkgs, lib, config, inputs, ... }:
-
+let
+  pkgs-stable = import inputs.nixpkgs-stable { system = pkgs.stdenv.system;};
+in 
 {
   # https://devenv.sh/basics/
   env.GREET = "devenv";
 
   # https://devenv.sh/packages/
-  packages = [ pkgs.git ];
+  packages = [ pkgs-stable.git pkgs-stable.glfw pkgs-stable.glew  pkgs-stable.mesa pkgs-stable.libGLU pkgs-stable.wayland pkgs-stable.libcxx pkgs-stable.libxkbcommon];
 
   # https://devenv.sh/languages/
   # languages.rust.enable = true;
   languages.python = {
     enable = true;
-    
+    version = "3.12.7"; 
     venv.enable = true;
     venv.requirements = ./requirements.txt;
   };
@@ -29,10 +31,14 @@
     echo hello from $GREET
   '';
 
+  scripts.python.exec = ''
+    echo hello 
+    '';
+
+
   enterShell = ''
-    hello
     git --version
-    git config user.email "$GIT_EMAIL"`
+    git config user.email "$GIT_EMAIL"
     git config user.name "$GIT_USERNAME"
   '';
 
