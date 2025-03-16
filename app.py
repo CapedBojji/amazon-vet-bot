@@ -3,13 +3,11 @@ import pickle
 import sys
 import os
 import toml
-# import undetected_chromedriver as uc
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import TimeoutException, ElementNotInteractableException
 import dotenv
-# from selenium.webdriver import Chrome, Firefox
 from undetected_chromedriver import Chrome
 
 import time
@@ -18,8 +16,10 @@ from datetime import datetime, timedelta
 import logging
 from multiprocessing import Pool
 
-from time_utils import generate_dates, next_date_of, wait_for_time, convert_time_to_seconds
+from time_utils import generate_dates, next_date_of, wait_for_time, convert_time_to_seconds, is_time_between
 from O365 import Account, FileSystemTokenBackend
+
+from utils import get_next_time_epoch_seconds
 
 
 # Create a logger

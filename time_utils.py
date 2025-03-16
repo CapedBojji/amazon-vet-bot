@@ -57,3 +57,6 @@ def wait_for_time(epoch_seconds=0):
 def convert_time_to_seconds(time: str):
     hours, minutes = time.split(":")
     return int(hours) * 3600 + int(minutes) * 60
+
+def is_time_between(start_time: int, end_time: int, other_start_time: int, other_end_time: int):
+    return start_time <= other_start_time < end_time and start_time < other_end_time <= end_time
