@@ -1,0 +1,15 @@
+build
+dist
+cookies
+email-tokens
+*.env
+app.log
+app.py.bak
+*.exe
+*.spec
+config.toml
+.env
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
