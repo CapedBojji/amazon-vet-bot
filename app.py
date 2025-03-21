@@ -16,75 +16,23 @@ from datetime import datetime, timedelta
 import logging
 from multiprocessing import Pool
 
-from time_utils import generate_dates, next_date_of, wait_for_time, convert_time_to_seconds, is_time_between
+from time_utils import convert_to_military, generate_dates, next_date_of, wait_for_time, convert_time_to_seconds, is_time_between, get_next_week
 from O365 import Account, FileSystemTokenBackend
 
-from utils import get_next_time_epoch_seconds
+from utils import browser_wait, ensure_directories, get_next_time_epoch_seconds, obfuscate_email 
+from utils import resource_path
+from printer import logger
 
+ensure_directories(["cookies", "email-tokens"])
+dotenv.load_dotenv(dotenv_path=resource_path("builtin.env"))
+dotenv.load_dotenv()
+DEBUG = bool(os.getenv("DEBUG")) or False
 
-# Create a logger
-logger = logging.getLogger("AtoZBot")
-logger.setLevel(logging.DEBUG)
-
-# Create file handler
-file_handler = logging.FileHandler("app.log")
-file_handler.setLevel(logging.DEBUG)
-file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-
-# Create console handler (optional)
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)  # Show only INFO and above in console
-console_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
-
-# Add handlers to logger
-logger.addHandler(file_handler)
-logger.addHandler(console_handler)
-
-def convert_to_military(time_str: str) -> str:
-    # Parse the input string which is in the format "6:15pm" or "06:15 PM"
-    dt = datetime.strptime(time_str.strip().lower(), "%I:%M%p")
-    return dt.strftime("%H:%M")
-
-def browser_wait(browser, duration, func):
-    try:
-        if func == None:
-            browser.implicitly_wait(duration)
-            time.sleep(duration)
-            return True
-        WebDriverWait(browser, duration, ignored_exceptions=(TimeoutException)).until(func)
-    except TimeoutException:
-        return False
-    return True
-
-def ensure_directories():
-    """Create necessary directories if they don't exist"""
-    os.makedirs("email-tokens", exist_ok=True)
-    os.makedirs("cookies", exist_ok=True)
-    return True
-
-def obfuscate_email(email: str):
-    # Replace everything between the first character and the '@' with '*'
-    return re.sub(r'(?<=.).*(?=@)', lambda m: '*' * len(m.group()), email)
-
-
-def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
-    try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(".")
-
-    # Handle macOS bundle resources
-    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-        if sys.platform == 'darwin' and '.app/Contents/MacOS' in sys.executable:
-            # For macOS .app bundles
-            resources_path = os.path.join(os.path.dirname(os.path.dirname(sys.executable)), 'Resources')
-            possible_path = os.path.join(resources_path, relative_path)
-            if os.path.exists(possible_path):
-                return possible_path
-
-    return os.path.join(base_path, relative_path)
+def debug(message="", list=None):
+    logger.debug(message)
+    if list is not None:
+        for item in list:
+            logger.debug(item)
 
 URLS = {
     "LOGIN_1": "https://atoz-login.amazon.work/",
@@ -211,19 +159,32 @@ def pick_shifts(browser, working_hours, days_to_check):
     for date in dates:
         browser.get(URLS["SHIFTS"] + date)
 
-        if not browser_wait(browser, 2, EC.url_contains(URLS["SHIFTS"])):
+        # Wait for page to load
+        browser_wait(browser, 3, lambda d: d.execute_script("return document.readyState") == "complete") 
+        debug("Page loaded")
+
+        if not EC.url_contains(URLS["SHIFTS"])(browser):
             return False
-        # Wait for shifts to load
-        if not browser_wait(browser, 2, EC.presence_of_element_located((By.XPATH, "//div[@role='listitem']"))):
-            return False
-        
-        for row in browser.find_elements(By.XPATH, "//div[@role='listitem']"):
+
+        # Grab all rows
+        browser_wait(browser, 1, EC.presence_of_element_located((By.XPATH, "//div[@role='listitem']")))
+        rows = browser.find_elements(By.XPATH, "//div[@role='listitem']")        
+        debug(f"Found {len(rows)} rows")
+
+
+        for row in rows:
             # Grab add shift button, will error if it's not there thus skipping the row
+            browser_wait(browser, 1, EC.presence_of_all_elements_located((By.XPATH, ".//button[@aria-label='Add shift button']")))
             add_shift = row.find_elements(By.XPATH, ".//button[@aria-label='Add shift button']")
+            debug(f"Found {len(add_shift)} add shift buttons")
+
             if len(add_shift) == 0:
                 continue
+
             # Grab the text element
             textelem = row.find_element(By.XPATH, ".//div[@data-test-component='StencilText']")
+            debug(f"Checking {textelem.text}")
+
             # Grab the text
             hours = textelem.text
             # Grab the time
@@ -256,7 +217,7 @@ def pick_shifts(browser, working_hours, days_to_check):
                     return False
                 browser.find_element(By.XPATH, ELEMENTS["OPORTUNITY_ACCEPT"]).click()
 
-            browser_wait(browser, 0.5, None)
+            browser_wait(browser, 1.5, None)
 
 
 def process_config(config_file):
@@ -271,35 +232,62 @@ def process_config(config_file):
         working_hours = {key: [] for key in generate_dates(0, 9)}
         for rule, times in data["rules"].items():
             if rule.title() in list(calendar.day_name) or rule.title() in list(calendar.day_abbr):
-                date = next_date_of(day_of_week=rule, use_today_if_same=False)
+                is_sun_or_mon = rule.lower() in ["sunday", "monday"]
+                offset_map = {
+                    "sunday": 0,
+                    "monday": 1,
+                    "tuesday": 2,
+                    "wednesday": 3,
+                    "thursday": 4,
+                    "friday": 5,
+                    "saturday": 6
+                }
+                date = datetime.strptime(next_date_of(day_of_week="sunday", use_today_if_same=True), "%Y-%m-%d")
+                date += timedelta(days=offset_map[rule.lower()])
+                date = date.strftime("%Y-%m-%d")
+
+                if is_sun_or_mon and rule.lower() == "sunday":
+                    date = [date]
+                    next_date = next_date_of(date=date[0], offset=7)
+                    date.append(next_date)
+
+                if type(date) is not list:
+                    date = [date]
+                for time in times:
+                    for d in date:
+                        _start_time, end_time = time["start_time"], time["end_time"]
+                        _start_time, end_time = convert_time_to_seconds(_start_time), convert_time_to_seconds(end_time)
+                        if _start_time > end_time:
+                            next_date = next_date_of(date=d, offset=1)
+                            working_hours[d].append((_start_time, 86399))
+                            working_hours[next_date].append((0, end_time))
+                        else:
+                            working_hours[d].append((_start_time, end_time))
             else:
                 date = rule
-            for t in times:
-                _start_time, end_time = t["start_time"], t["end_time"]
-                _start_time, end_time = convert_time_to_seconds(_start_time), convert_time_to_seconds(end_time)
-                if _start_time > end_time:
-                    next_date = next_date_of(date=date, offset=1)
-                    working_hours[date].append((_start_time, 86399))
-                    working_hours[next_date].append((0, end_time))
-                else:
-                    working_hours[date].append((_start_time, end_time))
+                for t in times:
+                    _start_time, end_time = t["start_time"], t["end_time"]
+                    _start_time, end_time = convert_time_to_seconds(_start_time), convert_time_to_seconds(end_time)
+                    if _start_time > end_time:
+                        next_date = next_date_of(date=date, offset=1)
+                        working_hours[date].append((_start_time, 86399))
+                        working_hours[next_date].append((0, end_time))
+                    else:
+                        working_hours[date].append((_start_time, end_time))
         return start_time, manual_login, ignore_start_time, name, email, password, working_hours
+                    
                         
 
 
 
 def main():
-    ensure_directories()
-    dotenv.load_dotenv(dotenv_path=resource_path("builtin.env"))
-    dotenv.load_dotenv(dotenv_path=resource_path(".env"))
-    dotenv.load_dotenv()
     config_file = os.getenv("CONFIG_FILE") or "config.toml" 
     client_id = os.getenv("CLIENT_ID")
     client_secret = os.getenv("CLIENT_SECRET")
     days_to_check = int(os.getenv("DAYS_TO_CHECK")) or 9
     duration = int(os.getenv("DURATION")) * 60 or 600
     start_time, manual_login, ignore_start_time, name, email, password, working_hours = process_config(config_file) 
-    browser = Chrome() if manual_login else Chrome(headless=True)
+    browser = Chrome(headless=True if not DEBUG else False)
 
     start_time = get_next_time_epoch_seconds(start_time)
     account = Account((client_id, client_secret), token_backend=FileSystemTokenBackend(token_path="email-tokens", token_filename=f"{name}.secret"))
@@ -323,11 +311,12 @@ def main():
     if not sign_out(browser):
         logger.error(f"Failed to sign out for {name}")
         return False
-        
+    browser.quit()
+
     if not ignore_start_time:
         wait_for_time(epoch_seconds=start_time - 120)
-    browser.quit()
-    browser = Chrome(headless=True)
+
+    browser = Chrome(headless=True if not DEBUG else False)
     while time.time() < start_time + 300 + duration:
         time.sleep(5)
         load_cookies(browser, f"cookies/{name}.pkl")
