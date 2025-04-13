@@ -5,6 +5,7 @@ import os
 
 
 DEBUG = bool(os.getenv("DEBUG")) or False
+DEBUG = True
 
 # Create a logger
 logger = logging.getLogger("AtoZBot")

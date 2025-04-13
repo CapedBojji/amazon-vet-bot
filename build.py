@@ -118,33 +118,6 @@ exe = EXE(
     
     return spec_filename
 
-def update_app_for_builtin_env():
-    """Update app.py to use builtin.env"""
-    print("Making sure app.py uses builtin.env...")
-    
-    with open('app.py', 'r') as f:
-        content = f.read()
-    
-    # Check if we need to modify the file
-    if "dotenv.load_dotenv(dotenv_path=resource_path(\"builtin.env\"))" not in content:
-        # Add the builtin.env loading before existing .env loading
-        content = content.replace(
-            "dotenv.load_dotenv(dotenv_path=resource_path(\".env\"))",
-            "dotenv.load_dotenv(dotenv_path=resource_path(\"builtin.env\"))\n    dotenv.load_dotenv(dotenv_path=resource_path(\".env\"))"
-        )
-        
-        # Create a backup of the original file
-        shutil.copy('app.py', 'app.py.bak')
-        
-        # Write the updated content
-        with open('app.py', 'w') as f:
-            f.write(content)
-        print("Updated app.py to use builtin.env")
-    else:
-        print("app.py already uses builtin.env")
-    
-    return True
-
 def build_executable(spec_file):
     """Build the executable using PyInstaller"""
     system = platform.system()
@@ -177,10 +150,6 @@ def main():
     
     # Clean previous builds
     if not clean_previous_builds():
-        return False
-    
-    # Update app.py to use builtin.env
-    if not update_app_for_builtin_env():
         return False
     
     # Generate platform-specific spec file
